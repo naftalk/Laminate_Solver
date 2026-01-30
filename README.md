@@ -30,7 +30,9 @@ Designed for ease of distribution, the entire engine is contained in a **single 
 
 1. Clone the repository:
    ```bash
-   git clone [https://github.com/naftalk/Laminate_Solver.git](https://github.com/naftalk/Laminate_Solver.git)
+   git clone (https://github.com/naftalk/Laminate_Solver.git)
+
+   gh repo clone naftalk/Laminate_Solver
    
 2. Install the required dependency:
 
