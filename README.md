@@ -68,9 +68,9 @@ This tool has been verified against standard textbook problems. Please see ```Ex
 
 The tool implements the standard integration of transformed reduced stiffness components Qˉ​ij​:
 
-$$ A_{ij} = \sum_{k=1}^{N} (\bar{Q}{ij})k (z_k - z{k-1}) $$ 
-$$ B{ij} = \frac{1}{2} \sum_{k=1}^{N} (\bar{Q}{ij})k (z_k^2 - z{k-1}^2) $$ 
-$$ D{ij} = \frac{1}{3} \sum_{k=1}^{N} (\bar{Q}_{ij})k (z_k^3 - z{k-1}^3) $$
+$$ A_{ij} = \sum_{k=1}^{N} (\bar{Q}_{ij})_k (z_k - z_{k-1}) $$ 
+$$ B_{ij} = \frac{1}{2} \sum_{k=1}^{N} (\bar{Q}_{ij})_k (z_k^2 - z_{k-1}^2) $$ 
+$$ D_{ij} = \frac{1}{3} \sum_{k=1}^{N} (\bar{Q}_{ij})_k (z_k^3 - z_{k-1}^3) $$
 
 ## License
 
