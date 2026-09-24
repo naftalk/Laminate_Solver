@@ -30,7 +30,7 @@ Designed for ease of distribution, the entire engine is contained in a **single 
 
 1. Clone the repository:
    ```bash
-   git clone (https://github.com/naftalk/Laminate_Solver.git)
+   git clone https://github.com/naftalk/Laminate_Solver.git
 
    gh repo clone naftalk/Laminate_Solver
    
@@ -66,7 +66,7 @@ This tool has been verified against standard textbook problems. Please see ```Ex
 
 ## Theory & Conventions
 
-The tool implements the standard integration of transformed reduced stiffness components Qˉ​ij​:
+The tool implements the standard integration of transformed reduced stiffness components $\bar{Q}_{ij}$:
 
 $$ A_{ij} = \sum_{k=1}^{N} (\bar{Q}_{ij})_k (z_k - z_{k-1}) $$ 
 $$ B_{ij} = \frac{1}{2} \sum_{k=1}^{N} (\bar{Q}_{ij})_k (z_k^2 - z_{k-1}^2) $$ 

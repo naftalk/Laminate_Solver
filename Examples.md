@@ -46,7 +46,7 @@ Important: Since these matrices already contain the 45° transformation, we tell
 
 -Make symmetry to have a final stacking of [45/-45/-45/45]
 
-4. Expected Results
+3. Expected Results
    
   [B] Matrix: All Zeros (Symmetric Laminate).
   
@@ -72,7 +72,7 @@ Configuration: [0 (5mm) / 45 (3mm)] Total Thickness: 8.0 mm
 [0.0   0.0  0.7]
 ]
 
-3. Build Stack
+2. Build Stack
    
 -Add Layer 1 (Bottom): Material MAT_BASE, Angle 0, Thick 5.
 
@@ -86,7 +86,7 @@ Configuration: [0 (5mm) / 45 (3mm)] Total Thickness: 8.0 mm
 
                             (The code will automatically rotate the matrix by 45°)
                             
-5. Expected Results
+3. Expected Results
    
 -[B] Matrix: Non-Zero.
 
@@ -119,7 +119,7 @@ Input:
 
 -G12: 7.17 GPa
 
-3. Build Stack
+2. Build Stack
    
 -Add Layer: 0 deg, 0.125 mm
 
@@ -131,7 +131,7 @@ Input:
 
 Action: Select 3. Make Symmetric
 
-5. Expected Results
+3. Expected Results
    
 -[A] Matrix: Should be isotropic in the plane (A11​≈A22​).
 
