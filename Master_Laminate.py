@@ -26,7 +26,20 @@ class UnitSystem:
         elif choice == '4':  # Imperial (psi, in)
             self.stress, self.length, self.force, self.moment = "psi", "in", "lb/in", "lb"
         elif choice == '5':  # Imperial (Msi, in)
-            self.stress, self.length, self.force, self.moment = "Msi", "in", "kips/in", "kips"
+            self.stress, self.length, self.force, self.moment = "Msi", "in", "Mlb/in", "Mlb"
+
+
+# Coupling terms are judged relative to the matrix scale, so the checks behave
+# the same regardless of the unit system (MPa/mm, GPa/mm, Pa/m, psi/in, ...).
+REL_TOL = 1e-6
+
+
+def is_negligible(value, scale):
+    return abs(value) <= REL_TOL * scale if scale > 0 else abs(value) == 0
+
+
+def matrix_scale(M):
+    return max(abs(M[0, 0]), abs(M[1, 1]), abs(M[2, 2]))
 
 
 class Material:
@@ -39,11 +52,17 @@ class Material:
         if mode == 'props_2d':
             self.Q_0 = self._calc_Q_from_2d_props(props)
         elif mode == 'direct_q':
-            self.Q_0 = self.raw_matrix
+            if self.raw_matrix is None or self.raw_matrix.shape != (3, 3):
+                raise ValueError("Mode B requires 3x3 Matrix.")
+            self.Q_0 = self.raw_matrix.astype(float)
         elif mode == 'stiffness_c':
             self.Q_0 = self._calc_Q_from_C_matrix(self.raw_matrix)
+        else:
+            raise ValueError(f"Unknown material mode '{mode}'.")
 
     def _calc_Q_from_2d_props(self, p):
+        if p['E1'] <= 0 or p['E2'] <= 0 or p['G12'] <= 0:
+            raise ValueError("E1, E2 and G12 must be positive.")
         nu21 = p['nu12'] * (p['E2'] / p['E1'])
         denom = 1 - p['nu12'] * nu21
         if denom <= 0: raise ValueError("Invalid Properties (1 - nu12*nu21 <= 0)")
@@ -54,7 +73,7 @@ class Material:
         ])
 
     def _calc_Q_from_C_matrix(self, C):
-        if C.shape != (6, 6): raise ValueError("Mode C requires 6x6 Matrix.")
+        if C is None or C.shape != (6, 6): raise ValueError("Mode C requires 6x6 Matrix.")
         c33 = C[2, 2]
         if c33 == 0: raise ValueError("C33 cannot be zero.")
         q11 = C[0, 0] - (C[0, 2] ** 2 / c33)
@@ -121,10 +140,9 @@ class LaminateSolver:
         return "[" + "/".join(angles) + "]"
 
     def classify_laminate(self, A, B, D):
-        norm_B = np.linalg.norm(B)
-        A16, A26 = A[0, 2], A[1, 2]
-        is_sym = norm_B < 1e-4
-        is_balanced = (abs(A16) < 1e-4) and (abs(A26) < 1e-4)
+        is_sym = self.is_B_zero(A, B, D)
+        a_scale = matrix_scale(A)
+        is_balanced = is_negligible(A[0, 2], a_scale) and is_negligible(A[1, 2], a_scale)
         angles = [l['disp_angle'] for l in self.layers]
         unique_angles = set(abs(a) for a in angles)
         desc = []
@@ -132,7 +150,7 @@ class LaminateSolver:
             desc.append("SYMMETRIC")
         else:
             desc.append("UNSYMMETRIC")
-        if len(unique_angles) == 1 and 0 in unique_angles:
+        if len(set(angles)) == 1:
             desc.append("UNIDIRECTIONAL")
         elif len(unique_angles) == 2 and 0 in unique_angles and 90 in unique_angles:
             desc.append("CROSS-PLY")
@@ -141,6 +159,12 @@ class LaminateSolver:
         else:
             desc.append("GENERAL ANGLE-PLY")
         return " ".join(desc)
+
+    @staticmethod
+    def is_B_zero(A, B, D):
+        # A ~ Q*h, B ~ Q*h^2, D ~ Q*h^3, so sqrt(|A|*|D|) has the same units as B.
+        scale = np.sqrt(np.linalg.norm(A) * np.linalg.norm(D))
+        return is_negligible(np.linalg.norm(B), scale)
 
     def calculate_stiffness(self, specific_layers=None):
         # Optimized to calculate once and return tuple
@@ -178,13 +202,21 @@ class LaminateSolver:
         except np.linalg.LinAlgError:
             return None
 
+    def is_mirror_symmetric(self):
+        n = len(self.layers)
+        for i in range(n // 2):
+            a, b = self.layers[i], self.layers[n - 1 - i]
+            if (a['mat'] is not b['mat'] or a['disp_angle'] != b['disp_angle']
+                    or a['calc_angle'] != b['calc_angle'] or a['thick'] != b['thick']):
+                return False
+        return True
+
     def optimize_stack_iterative(self, iterations=5000):
         if not self.layers: return None, 0.0, 0.0
         current_ratio = self.get_coupling_ratio()
         best_layers = [l.copy() for l in self.layers]
         best_ratio = current_ratio
-        _, B, _, _ = self.calculate_stiffness()
-        is_symmetric = np.allclose(B, 0, atol=1e-5)
+        is_symmetric = self.is_mirror_symmetric()
 
         if is_symmetric:
             search_pool = [l.copy() for l in self.layers[:len(self.layers) // 2]]
@@ -267,17 +299,18 @@ def generate_report(solver, A, B, D, h, deformations=None, load_vals=None):
 
     # Physics Analysis
     lines.append("\nPhysics Coupling Analysis:")
-    if abs(A[0, 2]) > 1 or abs(A[1, 2]) > 1:
+    a_scale, d_scale = matrix_scale(A), matrix_scale(D)
+    if not (is_negligible(A[0, 2], a_scale) and is_negligible(A[1, 2], a_scale)):
         lines.append("  [!] EXTENSION-SHEAR (A16, A26 != 0): Pulling causes Shearing.")
     else:
         lines.append("  [OK] No Extension-Shear Coupling.")
 
-    if np.linalg.norm(B) > 1e-2:
+    if not solver.is_B_zero(A, B, D):
         lines.append("  [!] BENDING-EXTENSION (B != 0): UNSYMMETRIC. Warping risk high.")
     else:
         lines.append("  [OK] Symmetric (B ~ 0). No Warping.")
 
-    if abs(D[0, 2]) > 1 or abs(D[1, 2]) > 1:
+    if not (is_negligible(D[0, 2], d_scale) and is_negligible(D[1, 2], d_scale)):
         lines.append("  [!] BEND-TWIST (D16, D26 != 0): Bending causes Twisting.")
     else:
         lines.append("  [OK] No Bend-Twist Coupling.")
@@ -376,12 +409,25 @@ class App:
                     for k, v in data.items():
                         m = v.get('matrix')
                         self.materials[k] = Material(v['name'], v['mode'], v.get('data'), m)
-            except:
-                pass
+            except (OSError, ValueError, KeyError, TypeError) as e:
+                print(f"[WARN] Could not load material library '{self.lib_file}': {e}")
+                input("Press Enter...")
 
     def save_lib(self):
         data = {k: v.to_dict() for k, v in self.materials.items()}
         with open(self.lib_file, 'w') as f: json.dump(data, f, indent=4)
+
+    def get_matrix_rows(self, n):
+        m = []
+        for i in range(n):
+            t = input(f"Row {i + 1}: ")
+            if not t: break
+            try:
+                m.append([float(x) for x in t.split()])
+            except ValueError:
+                print("Invalid number.")
+                return None
+        return m
 
     def get_float(self, prompt, allow_default=False):
         while True:
@@ -411,6 +457,19 @@ class App:
         print("C) 3D Stiffness C Matrix (6x6 -> Reduced)")
         mode = input("Choice: ").upper()
 
+        try:
+            mat = self._build_material(name, mode)
+        except ValueError as e:
+            input(f"Material not saved: {e} Press Enter...")
+            return
+        if mat is None:
+            return
+        self.materials[name] = mat
+        self.save_lib()
+
+    def _build_material(self, name, mode):
+        if not name:
+            raise ValueError("Name cannot be empty.")
         if mode == 'A':
             p = {}
             p['E1'] = self.get_float("  E1: ")
@@ -421,21 +480,21 @@ class App:
             print("  --- Optional 3D Props (Press Enter to skip) ---")
             p['G13'] = self.get_float("  G13 [Default=G12]: ", True) or p['G12']
             p['nu23'] = self.get_float("  ν23 [Default=0]: ", True)
-            self.materials[name] = Material(name, 'props_2d', props=p)
+            return Material(name, 'props_2d', props=p)
         elif mode == 'B':
             print("Enter 3x3 Q Matrix:")
-            m = []
-            for i in range(3): m.append(list(map(float, input(f"Row {i + 1}: ").split())))
-            self.materials[name] = Material(name, 'direct_q', matrix=m)
+            m = self.get_matrix_rows(3)
+            if m is None or len(m) != 3 or any(len(r) != 3 for r in m):
+                raise ValueError("Mode B requires 3x3 Matrix.")
+            return Material(name, 'direct_q', matrix=m)
         elif mode == 'C':
             print("Enter 6x6 C Matrix:")
-            m = []
-            for i in range(6):
-                t = input(f"Row {i + 1}: ")
-                if not t: break
-                m.append(list(map(float, t.split())))
-            self.materials[name] = Material(name, 'stiffness_c', matrix=m)
-        self.save_lib()
+            m = self.get_matrix_rows(6)
+            if m is None or len(m) != 6 or any(len(r) != 6 for r in m):
+                raise ValueError("Mode C requires 6x6 Matrix.")
+            return Material(name, 'stiffness_c', matrix=m)
+        input("Unknown choice. Press Enter...")
+        return None
 
     def build_stack(self):
         while True:
@@ -464,6 +523,9 @@ class App:
                 if m in self.materials:
                     disp_ang = self.get_float("Physical Angle (e.g. 45): ")
                     thk = self.get_float(f"Thickness ({self.units.length}): ")
+                    if thk <= 0:
+                        input("Thickness must be positive. Press Enter...")
+                        continue
                     pre = False
                     if self.materials[m].mode == 'direct_q':
                         print("  [?] PRE-ROTATED CHECK:")
@@ -472,6 +534,8 @@ class App:
                         chk = input("Is this Q-matrix PRE-ROTATED? (y/n): ").lower()
                         if chk == 'y': pre = True
                     self.solver.add_layer(self.materials[m], disp_ang, thk, is_pre_rotated=pre)
+                else:
+                    input(f"Unknown material '{m}'. Press Enter...")
             elif ans == '2':
                 self.solver.remove_last_layer()
             elif ans == '3':
@@ -559,7 +623,7 @@ class App:
                 self.run_optimization_workflow()
             elif c == '6':
                 self.solver.z_sign *= -1
-                print("Z-Axis.")
+                input(f"Z-Axis now {'Z-Down' if self.solver.z_sign == -1 else 'Z-Up'}. Press Enter...")
             elif c == '7':
                 break
 
